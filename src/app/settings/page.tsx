@@ -1,26 +1,37 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { auth } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { UserButton } from '@clerk/nextjs';
 import { db } from '@/db';
-import { campaigns, characters } from '@/db/schema';
+import { campaigns, characters, profiles } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 export default async function CampaignManager() {
-  // 1. FIX: Await auth() for Clerk v5 compatibility
   const { userId } = await auth();
+  const user = await currentUser();
   
-  if (!userId) {
+  if (!userId || !user) {
     redirect('/sign-in');
   }
 
-  // Fetch campaigns hosted by this user
+  // --- LAZY PROFILE CREATION ---
+  let [profile] = await db.select().from(profiles).where(eq(profiles.id, userId));
+
+  if (!profile) {
+    await db.insert(profiles).values({
+      id: userId,
+      username: user.username || user.firstName || 'Adventurer',
+      avatarUrl: user.imageUrl,
+      dailyMessageCount: 0,
+    });
+  }
+  // -----------------------------
+
   const hostedCampaigns = await db
     .select()
     .from(campaigns)
     .where(eq(campaigns.dmId, userId));
 
-  // Fetch campaigns where this user is playing a character
   const playingRecords = await db
     .select({
       id: campaigns.id,
@@ -42,7 +53,6 @@ export default async function CampaignManager() {
           <Link href="/settings" className="text-zinc-400 hover:text-zinc-100 transition-colors">
             API Settings (BYOK)
           </Link>
-          {/* 2. FIX: Remove outdated Clerk v4 prop */}
           <UserButton />
         </div>
       </nav>
@@ -68,7 +78,6 @@ export default async function CampaignManager() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          
           {hostedCampaigns.map((campaign) => (
             <Link href={`/campaign/${campaign.id}`} key={`dm-${campaign.id}`} 
                   className="block group bg-zinc-900 border border-zinc-800 rounded-xl p-6 hover:border-red-900/50 transition-all">
@@ -76,7 +85,6 @@ export default async function CampaignManager() {
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">
                   {campaign.theme || 'Custom'}
                 </span>
-                {/* Visual Fix: Changed label to 'Host' */}
                 <span className="text-xs px-2 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
                   Host
                 </span>
@@ -106,7 +114,6 @@ export default async function CampaignManager() {
               </p>
             </Link>
           ))}
-
         </div>
       </main>
     </div>
