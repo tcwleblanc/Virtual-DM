@@ -1,6 +1,7 @@
 'use client';
 
 import { useChat } from 'ai/react';
+import { type Message } from 'ai';
 import { useEffect, useRef } from 'react';
 
 interface StoryChatProps {
@@ -37,7 +38,7 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
           </div>
         )}
 
-        {messages.map((m) => (
+        {messages.map((m: Message) => (
           <div 
             key={m.id} 
             className={`flex flex-col max-w-[85%] rounded-lg p-4 shadow-md ${
