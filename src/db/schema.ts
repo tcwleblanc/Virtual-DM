@@ -6,7 +6,9 @@ import {
   varchar, 
   jsonb, 
   integer, 
-  boolean 
+  boolean,
+  index,
+  vector // Added for pgvector support
 } from "drizzle-orm/pg-core";
 
 // 1. PROFILES: Linked to Clerk Authentication
@@ -14,6 +16,12 @@ export const profiles = pgTable("profiles", {
   id: varchar("id", { length: 255 }).primaryKey(), // Clerk User ID
   username: varchar("username", { length: 255 }).notNull(),
   avatarUrl: text("avatar_url"),
+  
+  // --- NEW: BYOK & Rate Limiting ---
+  customApiKey: text("custom_api_key"), // User's personal Gemini key
+  dailyMessageCount: integer("daily_message_count").default(0).notNull(),
+  lastMessageDate: timestamp("last_message_date").defaultNow().notNull(),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -58,3 +66,19 @@ export const characterHistory = pgTable("character_history", {
   narrativeReason: text("narrative_reason").notNull(), // e.g., "Took fire damage from the Dragon's breath."
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
+
+// 5. CAMPAIGN MEMORY (RAG Engine): Stores individual narrative chunks + vector embeddings
+export const campaignMemory = pgTable("campaign_memory", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
+  role: varchar("role", { length: 50 }).notNull(), // 'user' or 'assistant'
+  content: text("content").notNull(), 
+  
+  // Gemini's text-embedding models generally output 768 dimensions
+  embedding: vector("embedding", { dimensions: 768 }), 
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  // HNSW index makes vector similarity search instantaneous across millions of rows
+  index("embedding_index").using("hnsw", table.embedding.op("vector_cosine_ops")),
+]);
