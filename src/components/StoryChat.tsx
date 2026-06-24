@@ -1,8 +1,9 @@
 'use client';
 
-import { useChat } from 'ai/react';
-import { type Message } from 'ai';
-import { useEffect, useRef } from 'react';
+import { useChat } from '@ai-sdk/react';
+// 1. Import the new DefaultChatTransport from the core 'ai' package
+import { DefaultChatTransport, type UIMessage } from 'ai'; 
+import { useEffect, useRef, useState } from 'react';
 
 interface StoryChatProps {
   campaignId: string;
@@ -10,15 +11,24 @@ interface StoryChatProps {
 }
 
 export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
-  // 1. Initialize the Vercel AI SDK Chat Hook
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
-    api: '/api/chat',
-    // We send our campaign and character IDs in the body so the backend can use them
-    body: {
-      characterId,
-      campaignId,
-    },
+  // 2. Manage the input state locally
+  const [input, setInput] = useState('');
+
+  // 3. Destructure the new v6 properties: messages, sendMessage, and status
+  const { messages, sendMessage, status } = useChat({
+    // 4. Configure the API connection using the DefaultChatTransport layer
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+      // We pass the body as a function so it always pulls the freshest React props
+      body: () => ({
+        characterId,
+        campaignId,
+      }),
+    }),
   });
+
+  // 5. Derive the loading state dynamically based on the network status
+  const isLoading = status === 'submitted' || status === 'streaming';
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -26,6 +36,16 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // 6. Create our own submit handler to replace the deprecated 'handleSubmit'
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input || input.trim() === '') return;
+    
+    // Send the message payload and immediately clear the input box
+    sendMessage({ text: input });
+    setInput('');
+  };
 
   return (
     <div className="flex flex-col h-full relative bg-neutral-950 text-neutral-200">
@@ -38,7 +58,7 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
           </div>
         )}
 
-        {messages.map((m: Message) => (
+        {messages.map((m: UIMessage) => (
           <div 
             key={m.id} 
             className={`flex flex-col max-w-[85%] rounded-lg p-4 shadow-md ${
@@ -56,7 +76,9 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
             
             {/* Message Body */}
             <p className="text-sm leading-relaxed whitespace-pre-wrap selection:bg-indigo-500/30">
-              {m.content}
+              {m.parts?.map((part, index) => (
+                part.type === 'text' ? <span key={index}>{part.text}</span> : null
+              ))}
             </p>
           </div>
         ))}
@@ -66,18 +88,19 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
       </div>
 
       {/* Input Bar Sticky Bottom */}
-      <form onSubmit={handleSubmit} className="p-4 bg-neutral-900 border-t border-neutral-800">
+      {/* 7. Attach our custom onSubmit handler to the form */}
+      <form onSubmit={onSubmit} className="p-4 bg-neutral-900 border-t border-neutral-800">
         <div className="flex gap-2">
           <input
-            value={input || ''} // Safety fallback: if undefined, use empty string
-            onChange={handleInputChange}
+            value={input}
+            // 8. Update our local input state when the user types
+            onChange={(e) => setInput(e.target.value)}
             placeholder={isLoading ? "The DM is writing history..." : "Type your action or enter a physical dice roll..."}
             disabled={isLoading}
             className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg p-3 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 placeholder-neutral-600 text-sm"
           />
           <button 
             type="submit"
-            // Safe evaluation: check if input exists before trimming
             disabled={isLoading || !input || input.trim() === ''}
             className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white font-medium px-5 rounded-lg transition-colors text-sm"
           >
