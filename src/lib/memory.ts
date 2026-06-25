@@ -4,19 +4,17 @@ import { embed } from 'ai';
 import { google } from '@ai-sdk/google';
 import { eq, desc, sql, cosineDistance } from 'drizzle-orm';
 
-/**
- * Searches the campaign memory for the top 5 most relevant historical interactions
- */
 export async function getRelevantLore(campaignId: string, userPrompt: string): Promise<string> {
   try {
-    // 1. Generate the mathematical vector using Google's embedding engine
     const { embedding } = await embed({
-      model: google.embedding('text-embedding-004') as any,
+      model: google.embedding('gemini-embedding-2'),
       value: userPrompt,
     });
 
-    // 2. Query Neon using pgvector cosine distance
-    const similarityScore = sql<number>`1 - (${cosineDistance(campaignMemory.embedding, embedding)})`;
+    // 🎲 ARCHITECT FIX: Matryoshka Truncation - Slice down to 768 to fit the HNSW Index
+    const truncatedEmbedding = embedding.slice(0, 768);
+
+    const similarityScore = sql<number>`1 - (${cosineDistance(campaignMemory.embedding, truncatedEmbedding)})`;
 
     const records = await db
       .select({
@@ -31,7 +29,6 @@ export async function getRelevantLore(campaignId: string, userPrompt: string): P
 
     if (records.length === 0) return "No ancient memories match this context.";
 
-    // ARCHITECT FIX: Explicitly typed 'r' to prevent implicit 'any' error
     return records
       .map((r: { role: string; content: string; similarity: number }) => 
         `[Past Event - Role: ${r.role} (Similarity: ${Math.round(Number(r.similarity) * 100)}%)]: "${r.content}"`
@@ -43,9 +40,6 @@ export async function getRelevantLore(campaignId: string, userPrompt: string): P
   }
 }
 
-/**
- * Permanently saves an interaction and indexes its vector embedding
- */
 export async function saveToCampaignMemory(
   campaignId: string, 
   role: 'user' | 'assistant', 
@@ -53,15 +47,18 @@ export async function saveToCampaignMemory(
 ) {
   try {
     const { embedding } = await embed({
-      model: google.embedding('text-embedding-004') as any,
+      model: google.embedding('gemini-embedding-2'),
       value: content,
     });
+
+    // 🎲 ARCHITECT FIX: Matryoshka Truncation before insertion
+    const truncatedEmbedding = embedding.slice(0, 768);
 
     await db.insert(campaignMemory).values({
       campaignId,
       role,
       content,
-      embedding,
+      embedding: truncatedEmbedding,
     });
   } catch (error) {
     console.error("Failed to commit memory chunk:", error);
