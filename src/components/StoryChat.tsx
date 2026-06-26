@@ -58,7 +58,7 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
           </div>
         )}
 
-        {messages.map((m: UIMessage) => (
+        {messages.map((m: any) => (
           <div 
             key={m.id} 
             className={`flex flex-col max-w-[85%] rounded-lg p-4 shadow-md ${
@@ -76,10 +76,31 @@ export default function StoryChat({ campaignId, characterId }: StoryChatProps) {
             
             {/* Message Body */}
             <p className="text-sm leading-relaxed whitespace-pre-wrap selection:bg-indigo-500/30">
-              {m.parts?.map((part, index) => (
+              {m.parts?.map((part: any, index: number) => (
                 part.type === 'text' ? <span key={index}>{part.text}</span> : null
               ))}
             </p>
+
+            {/* 2. Catch and render Tool Invocations */}
+            {m.toolInvocations?.map((toolInvocation: any) => {
+              // Check if it's our character sheet tool
+              if (toolInvocation.toolName === 'update_character_sheet') {
+                if (toolInvocation.state === 'result') {
+                  return (
+                    <div key={toolInvocation.toolCallId} className="p-2 mt-2 bg-green-900/20 border border-green-700/30 rounded text-xs text-green-400">
+                       Character sheet updated for: {toolInvocation.result.name}
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div key={toolInvocation.toolCallId} className="p-2 mt-2 bg-indigo-900/20 border border-indigo-700/30 rounded text-xs text-indigo-400">
+                      Updating character data...
+                    </div>
+                  );
+                }
+              }
+              return null;
+            })}
           </div>
         ))}
         
