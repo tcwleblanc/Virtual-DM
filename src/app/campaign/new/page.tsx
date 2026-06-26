@@ -58,7 +58,7 @@ export default function ForgeWorldPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans p-8">
+    <div className="h-full overflow-y-auto bg-zinc-950 text-zinc-50 font-sans p-8 pb-24">
       <nav className="mb-12">
         <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
           &larr; Back to Campaigns

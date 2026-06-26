@@ -1,3 +1,5 @@
+// src/app/campaign/new/actions.ts
+
 'use server';
 
 import { db } from '@/db';
@@ -31,6 +33,6 @@ export async function createCampaignAction(formData: FormData) {
     stateSummary: "The world has been forged. The adventure is about to begin...",
   }).returning({ id: campaigns.id });
 
-  // 5. Redirect the user to their new campaign's dashboard
-  redirect(`/campaign/${newCampaign.id}`);
+  // 5. Redirect the user to the Character Creator for this specific campaign
+  redirect(`/campaign/${newCampaign.id}/character/new`);
 }

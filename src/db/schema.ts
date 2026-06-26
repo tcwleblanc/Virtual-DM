@@ -8,7 +8,7 @@ import {
   integer, 
   boolean,
   index,
-  vector // Added for pgvector support
+  vector // Required for Neon pgvector RAG support
 } from "drizzle-orm/pg-core";
 
 // 1. PROFILES: Linked to Clerk Authentication
@@ -17,7 +17,7 @@ export const profiles = pgTable("profiles", {
   username: varchar("username", { length: 255 }).notNull(),
   avatarUrl: text("avatar_url"),
   
-  // --- NEW: BYOK & Rate Limiting ---
+  // --- BYOK & Rate Limiting ---
   customApiKey: text("custom_api_key"), // User's personal Gemini key
   dailyMessageCount: integer("daily_message_count").default(0).notNull(),
   lastMessageDate: timestamp("last_message_date").defaultNow().notNull(),
@@ -40,14 +40,19 @@ export const campaigns = pgTable("campaigns", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// 3. CHARACTERS: The Player's Avatar
+// 3. CHARACTERS: The Player's Avatar & Vault Support
 export const characters = pgTable("characters", {
   id: uuid("id").defaultRandom().primaryKey(),
-  campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
+  
+  // 🛠️ VAULT FIX: Removed .notNull() and set onDelete to 'set null'
+  // If a campaign is destroyed, the character loses its campaignId but survives in the database.
+  campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: 'set null' }),
+  
   userId: varchar("user_id", { length: 255 }).references(() => profiles.id).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   classAndLevel: varchar("class_and_level", { length: 255 }),
-  // JSONB is perfect here so we can inject dynamic stats based on the chosen Theme
+  
+  // JSONB allows dynamic stats based on the chosen Theme (e.g., 'Hacking' for Cyberpunk, 'Strength' for Fantasy)
   stats: jsonb("stats").notNull().$type<Record<string, any>>(), 
   inventory: jsonb("inventory").default([]).$type<Array<any>>(),
   spellbook: jsonb("spellbook").default([]).$type<Array<any>>(),
@@ -59,6 +64,8 @@ export const characters = pgTable("characters", {
 // 4. CHARACTER HISTORY: The Audit Log & History Tab Source
 export const characterHistory = pgTable("character_history", {
   id: uuid("id").defaultRandom().primaryKey(),
+  
+  // If a character is permanently deleted, their audit log goes with them
   characterId: uuid("character_id").references(() => characters.id, { onDelete: 'cascade' }).notNull(),
   actor: varchar("actor", { length: 50 }).notNull(), // 'AI_DM' or 'PLAYER'
   changedStat: varchar("changed_stat", { length: 100 }).notNull(), // e.g., 'HP', 'Gold', 'Spell_Slot'
@@ -70,11 +77,13 @@ export const characterHistory = pgTable("character_history", {
 // 5. CAMPAIGN MEMORY (RAG Engine): Stores individual narrative chunks + vector embeddings
 export const campaignMemory = pgTable("campaign_memory", {
   id: uuid("id").defaultRandom().primaryKey(),
+  
+  // If a campaign is deleted, its specific RAG memory is purged
   campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: 'cascade' }).notNull(),
   role: varchar("role", { length: 50 }).notNull(), // 'user' or 'assistant'
   content: text("content").notNull(), 
   
-  // Gemini's text-embedding models generally output 768 dimensions
+  // Matryoshka Representation Learning scaled dimensions to fit Neon's HNSW index limits
   embedding: vector("embedding", { dimensions: 768 }), 
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
