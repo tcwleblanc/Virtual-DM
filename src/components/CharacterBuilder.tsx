@@ -6,6 +6,42 @@ import { useState, useEffect, useRef } from 'react';
 import { saveCharacter } from '@/app/campaign/[id]/character/new/actions';
 import { useRouter } from 'next/navigation';
 
+// 🛠️ UPDATED: Custom Text Formatter with ES5/ES6 compatible Regex
+const FormattedMessage = ({ text }: { text: string }) => {
+  // FIX: Replaced `(".*?")/gs` with `("[\s\S]*?")/g`
+  // [\s\S] safely matches all characters, including newlines, making TypeScript happy!
+  const parts = text.split(/("[\s\S]*?")/g);
+
+  return (
+    <span className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
+      {parts.map((part, i) => {
+        // If it's spoken dialogue (wrapped in quotes)
+        if (part.startsWith('"') && part.endsWith('"')) {
+          return (
+            <span key={i} className="text-amber-400 font-medium">
+              {part}
+            </span>
+          );
+        }
+        
+        // For descriptions, parse markdown bolding
+        // FIX: Also updated this regex to use [\s\S] just to be safe across line breaks
+        const boldParts = part.split(/(\*\*[\s\S]*?\*\*)/g);
+        return (
+          <span key={i}>
+            {boldParts.map((bp, j) => {
+              if (bp.startsWith('**') && bp.endsWith('**')) {
+                return <strong key={j} className="text-white font-bold">{bp.replace(/\*\*/g, '')}</strong>;
+              }
+              return bp; // Normal description text
+            })}
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
 export default function CharacterBuilder({ campaign }: { campaign: any }) {
   const router = useRouter();
   
@@ -34,21 +70,17 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
-  // 1. ADD AUTO-INITIALIZATION LOGIC
   const hasInitialized = useRef(false);
   useEffect(() => {
-    // Only fire once, and only if there are no messages yet
     if (!hasInitialized.current && messages.length === 0) {
       hasInitialized.current = true;
       sendMessage({ text: 'INITIALIZE_DM_GREETING' });
     }
   }, [messages.length, sendMessage]);
 
-  // 2. FILTER OUT THE HIDDEN COMMAND FROM THE UI
   const visibleMessages = messages.filter((m: UIMessage) => {
     if (m.role === 'user') {
       const text = m.parts?.find(p => p.type === 'text');
-      // Hide our secret initialization trigger from the player
       if (text && text.text === 'INITIALIZE_DM_GREETING') return false; 
     }
     return true;
@@ -65,7 +97,7 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
   const handleFinalize = async () => {
     try {
       await saveCharacter(campaign.id, characterDraft);
-      router.push(`/campaign/${campaign.id}`); 
+      router.push(`/dashboard`); // Let's route them to the dashboard after saving!
     } catch (err) {
       console.error("Failed to save character", err);
     }
@@ -79,18 +111,20 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
         <h2 className="text-xl font-bold mb-4 text-emerald-400">AI Dungeon Master</h2>
         <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
           
-          {/* Replace 'messages.map' with 'visibleMessages.map' */}
           {visibleMessages.map((m: UIMessage) => (
-            <div key={m.id} className={`p-4 rounded-xl max-w-[85%] ${m.role === 'user' ? 'bg-indigo-900/50 self-end ml-auto' : 'bg-neutral-800 self-start'}`}>
-              <span className="font-semibold block mb-1">{m.role === 'user' ? 'You' : 'DM'}</span>
+            <div key={m.id} className={`p-4 rounded-xl max-w-[85%] ${m.role === 'user' ? 'bg-indigo-950/40 border border-indigo-900/50 self-end ml-auto' : 'bg-neutral-900/60 border border-neutral-800 self-start'}`}>
+              <span className={`text-xs font-bold tracking-wider mb-2 uppercase block ${m.role === 'user' ? 'text-indigo-400' : 'text-amber-500'}`}>
+                {m.role === 'user' ? 'You' : 'Dungeon Master'}
+              </span>
               
               {m.parts?.map((part, index) => {
                 if (part.type === 'text') {
-                  return <p key={index} className="whitespace-pre-wrap text-sm leading-relaxed">{part.text}</p>;
+                  // 🛠️ USE THE NEW FORMATTER HERE
+                  return <FormattedMessage key={index} text={part.text} />;
                 }
                 if (part.type === 'tool-invocation') {
-                  return <p key={index} className="text-xs text-emerald-400/80 italic mt-2 font-medium">
-                    [The DM updates your character sheet...]
+                  return <p key={index} className="text-xs text-emerald-400/80 italic mt-3 font-medium border-t border-emerald-900/30 pt-2">
+                    [The DM is updating your character sheet...]
                   </p>;
                 }
                 return null;
@@ -98,7 +132,6 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
             </div>
           ))}
 
-          {/* Initial Loading State for the Greeting */}
           {isLoading && visibleMessages.length === 0 && (
              <div className="text-center text-neutral-500 italic mt-12 animate-pulse">
                The DM is arranging their notes and setting the scene...
@@ -114,7 +147,7 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
           <input
             type="text"
             className="flex-1 bg-neutral-900 border border-neutral-700 rounded-lg p-3 text-white focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
-            placeholder="Tell the DM about your character idea..."
+            placeholder="Speak to the DM..."
             value={localInput}
             onChange={(e) => setLocalInput(e.target.value)}
             disabled={isLoading}
@@ -129,22 +162,20 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
         </form>
       </div>
 
-      {/* RIGHT PANEL: Live Character Sheet (Unchanged) */}
+      {/* RIGHT PANEL: Live Character Sheet */}
       <div className="w-1/2 p-8 bg-neutral-900 overflow-y-auto relative">
         <div className="absolute inset-0 opacity-5 bg-[url('/file.svg')] bg-center pointer-events-none"></div>
-        
         <div className="relative z-10 max-w-lg mx-auto bg-neutral-950 p-8 rounded-2xl border border-neutral-800 shadow-2xl">
           <div className="border-b border-neutral-800 pb-4 mb-6">
             <h1 className="text-3xl font-black text-white uppercase tracking-wider">{characterDraft.name}</h1>
             <h3 className="text-lg text-indigo-400">{characterDraft.classAndLevel}</h3>
           </div>
-
           <div className="space-y-8">
             <div>
               <h4 className="text-sm font-bold text-neutral-500 uppercase tracking-widest mb-3">Attributes</h4>
               <div className="grid grid-cols-3 gap-4">
                 {Object.entries(characterDraft.stats).map(([stat, val]) => (
-                  <div key={stat} className="bg-neutral-900 border border-neutral-800 p-3 rounded-lg text-center">
+                  <div key={stat} className="bg-neutral-900 border border-neutral-800 p-3 rounded-lg text-center shadow-inner">
                     <span className="block text-2xl font-bold text-emerald-400">{val as React.ReactNode}</span>
                     <span className="text-xs text-neutral-400 uppercase">{stat}</span>
                   </div>
@@ -154,14 +185,13 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
                 )}
               </div>
             </div>
-
             <div>
-              <h4 className="text-sm font-bold text-neutral-500 uppercase tracking-widest mb-3">Abilities / Spells</h4>
+              <h4 className="text-sm font-bold text-neutral-500 uppercase tracking-widest mb-3">Abilities & Spells</h4>
               <ul className="space-y-2">
                 {characterDraft.spellbook.map((spell, i) => (
-                  <li key={i} className="bg-neutral-900 border border-neutral-800 p-3 rounded-lg">
-                    <span className="font-semibold text-indigo-300 block">{spell.name}</span>
-                    <span className="text-sm text-neutral-400">{spell.effect}</span>
+                  <li key={i} className="bg-neutral-900 border border-neutral-800 p-4 rounded-lg shadow-inner">
+                    <span className="font-bold text-indigo-300 block text-lg mb-1">{spell.name}</span>
+                    <span className="text-sm text-neutral-400 leading-relaxed">{spell.effect}</span>
                   </li>
                 ))}
                 {characterDraft.spellbook.length === 0 && (
@@ -169,7 +199,6 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
                 )}
               </ul>
             </div>
-
             <button 
               onClick={handleFinalize}
               className="w-full mt-8 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(52,211,153,0.2)]"
