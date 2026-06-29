@@ -6,16 +6,13 @@ import { useState, useEffect, useRef } from 'react';
 import { saveCharacter } from '@/app/campaign/[id]/character/new/actions';
 import { useRouter } from 'next/navigation';
 
-// 🛠️ UPDATED: Custom Text Formatter with ES5/ES6 compatible Regex
+// Custom Text Formatter with ES5/ES6 compatible Regex
 const FormattedMessage = ({ text }: { text: string }) => {
-  // FIX: Replaced `(".*?")/gs` with `("[\s\S]*?")/g`
-  // [\s\S] safely matches all characters, including newlines, making TypeScript happy!
   const parts = text.split(/("[\s\S]*?")/g);
 
   return (
     <span className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
       {parts.map((part, i) => {
-        // If it's spoken dialogue (wrapped in quotes)
         if (part.startsWith('"') && part.endsWith('"')) {
           return (
             <span key={i} className="text-amber-400 font-medium">
@@ -24,8 +21,6 @@ const FormattedMessage = ({ text }: { text: string }) => {
           );
         }
         
-        // For descriptions, parse markdown bolding
-        // FIX: Also updated this regex to use [\s\S] just to be safe across line breaks
         const boldParts = part.split(/(\*\*[\s\S]*?\*\*)/g);
         return (
           <span key={i}>
@@ -33,7 +28,7 @@ const FormattedMessage = ({ text }: { text: string }) => {
               if (bp.startsWith('**') && bp.endsWith('**')) {
                 return <strong key={j} className="text-white font-bold">{bp.replace(/\*\*/g, '')}</strong>;
               }
-              return bp; // Normal description text
+              return bp;
             })}
           </span>
         );
@@ -59,14 +54,30 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
     transport: new DefaultChatTransport({
       api: '/api/character-build',
       body: () => ({ campaignContext: campaign })
-    }),
-    onToolCall({ toolCall }) {
-      if (toolCall.toolName === 'update_character_sheet') {
-        const newData = (toolCall as any).args;
-        setCharacterDraft((prev) => ({ ...prev, ...newData }));
-      }
-    }
+    })
   });
+
+  // Passively listen to the message stream for tool data
+  useEffect(() => {
+    // Cast to any to bypass strict checking on the outer array
+    const lastMessage = messages[messages.length - 1] as any; 
+    
+    if (lastMessage?.role === 'assistant' && lastMessage.toolInvocations) {
+      lastMessage.toolInvocations.forEach((invocation: any) => {
+        if (invocation.toolName === 'update_character_sheet') {
+          const newData = invocation.args;
+          
+          setCharacterDraft((prev) => {
+             const updated = { ...prev, ...newData };
+             if (JSON.stringify(prev) !== JSON.stringify(updated)) {
+               return updated;
+             }
+             return prev;
+          });
+        }
+      });
+    }
+  }, [messages]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -80,8 +91,11 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
 
   const visibleMessages = messages.filter((m: UIMessage) => {
     if (m.role === 'user') {
-      const text = m.parts?.find(p => p.type === 'text');
-      if (text && text.text === 'INITIALIZE_DM_GREETING') return false; 
+      // 🛠️ CRITICAL FIX: Use .some() with strict type guards to satisfy the compiler
+      const isHiddenTrigger = m.parts?.some(
+        (part) => part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text.includes('INITIALIZE_DM_GREETING')
+      );
+      if (isHiddenTrigger) return false; 
     }
     return true;
   });
@@ -97,7 +111,7 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
   const handleFinalize = async () => {
     try {
       await saveCharacter(campaign.id, characterDraft);
-      router.push(`/dashboard`); // Let's route them to the dashboard after saving!
+      router.push(`/dashboard`); 
     } catch (err) {
       console.error("Failed to save character", err);
     }
@@ -117,9 +131,9 @@ export default function CharacterBuilder({ campaign }: { campaign: any }) {
                 {m.role === 'user' ? 'You' : 'Dungeon Master'}
               </span>
               
+              {/* 🛠️ CRITICAL FIX: Strict type checking ('text' in part) before rendering */}
               {m.parts?.map((part, index) => {
-                if (part.type === 'text') {
-                  // 🛠️ USE THE NEW FORMATTER HERE
+                if (part.type === 'text' && 'text' in part && typeof part.text === 'string') {
                   return <FormattedMessage key={index} text={part.text} />;
                 }
                 if (part.type === 'tool-invocation') {
